@@ -554,8 +554,10 @@ function tratarMensagem(sala, cliente, msg) {
         semente: sala.semente,
         fase: sala.fase,
         corridaId: sala.corridaId,
-        // Uma folga curta para todo mundo montar a pista antes da contagem.
-        emMs: 1200,
+        // Tres segundos para todos receberem a mensagem e montarem a pista.
+        // O cliente desconta metade da propria latencia, fazendo a contagem
+        // regressiva terminar praticamente no mesmo instante para a sala toda.
+        emMs: 3000,
         jogadores: resumoDaSala(sala).jogadores
       });
       avisarSala(sala);
