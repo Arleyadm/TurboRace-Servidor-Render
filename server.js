@@ -27,11 +27,11 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.0.0";
+const VERSAO = "1.1.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
-const MAX_JOGADORES = 8;          // 8 carros humanos + o trafego da IA ja enche a pista
+const MAX_JOGADORES = 24;
 const MAX_SALAS = 60;
 const MAX_BYTES_MENSAGEM = 16 * 1024;
 const TOTAL_FASES = 28;
@@ -108,7 +108,19 @@ function json(res, status, corpo) {
 // Salas
 // ---------------------------------------------------------------------------
 
-function criarSala(nomeDaSala, maxJogadores, fase) {
+const CLIMAS = new Set(["auto", "sun", "rain_light", "rain_heavy", "snow", "fog", "night"]);
+
+function booleano(valor, padrao) {
+  if (valor == null || valor === "") return padrao;
+  return valor === true || valor === 1 || valor === "1" || String(valor).toLowerCase() === "true";
+}
+
+function climaSeguro(valor) {
+  const clima = String(valor || "auto").toLowerCase();
+  return CLIMAS.has(clima) ? clima : "auto";
+}
+
+function criarSala(nomeDaSala, maxJogadores, fase, configuracao) {
   if (salas.size >= MAX_SALAS) return null;
   let id = novoIdDeSala();
   let tentativas = 0;
@@ -120,6 +132,10 @@ function criarSala(nomeDaSala, maxJogadores, fase) {
     nome: nomeDaSala,
     maxJogadores: maxJogadores,
     fase: fase,
+    clima: climaSeguro(configuracao && configuracao.clima),
+    pocaAgua: booleano(configuracao && configuracao.pocaAgua, true),
+    pocaOleo: booleano(configuracao && configuracao.pocaOleo, true),
+    voltas: inteiro(configuracao && configuracao.voltas, 3, 1, 10),
     anfitriaoPid: "",
     correndo: false,
     semente: 0,
@@ -160,6 +176,10 @@ function resumoDaSala(sala) {
     id: sala.id,
     nome: sala.nome,
     fase: sala.fase,
+    clima: sala.clima,
+    pocaAgua: sala.pocaAgua,
+    pocaOleo: sala.pocaOleo,
+    voltas: sala.voltas,
     maxJogadores: sala.maxJogadores,
     minJogadores: MIN_JOGADORES,
     anfitriaoPid: sala.anfitriaoPid,
@@ -271,6 +291,10 @@ const servidor = http.createServer(function (req, res) {
         id: sala.id,
         nome: sala.nome,
         fase: sala.fase,
+        clima: sala.clima,
+        pocaAgua: sala.pocaAgua,
+        pocaOleo: sala.pocaOleo,
+        voltas: sala.voltas,
         jogadores: conectados(sala),
         maxJogadores: sala.maxJogadores,
         correndo: sala.correndo
@@ -363,7 +387,12 @@ function aoConectar(ws, url) {
     const maxPedido = inteiro(url.searchParams.get("max"), 4, MIN_JOGADORES, MAX_JOGADORES);
     const fasePedida = inteiro(url.searchParams.get("fase"), 0, 0, TOTAL_FASES - 1);
     const nomeDaSala = limpar(url.searchParams.get("salaNome"), "Sala de " + nome, 24);
-    sala = criarSala(nomeDaSala, maxPedido, fasePedida);
+    sala = criarSala(nomeDaSala, maxPedido, fasePedida, {
+      clima: url.searchParams.get("clima"),
+      pocaAgua: url.searchParams.get("pocaAgua"),
+      pocaOleo: url.searchParams.get("pocaOleo"),
+      voltas: url.searchParams.get("voltas")
+    });
     if (!sala) {
       recusar(ws, "Nao foi possivel criar a sala: o servidor esta cheio.");
       return;
@@ -377,7 +406,7 @@ function aoConectar(ws, url) {
   } else {
     sala = salaComVaga();
     if (!sala) {
-      sala = criarSala("Sala de " + nome, 4, 0);
+      sala = criarSala("Sala de " + nome, 4, 0, { clima: "auto", pocaAgua: true, pocaOleo: true, voltas: 3 });
       if (!sala) {
         recusar(ws, "Nao ha sala livre no momento.");
         return;
@@ -553,6 +582,10 @@ function tratarMensagem(sala, cliente, msg) {
         t: "largada",
         semente: sala.semente,
         fase: sala.fase,
+        clima: sala.clima,
+        pocaAgua: sala.pocaAgua,
+        pocaOleo: sala.pocaOleo,
+        voltas: sala.voltas,
         corridaId: sala.corridaId,
         // Tres segundos para todos receberem a mensagem e montarem a pista.
         // O cliente desconta metade da propria latencia, fazendo a contagem

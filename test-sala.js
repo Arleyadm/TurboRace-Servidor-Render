@@ -126,11 +126,17 @@ function conectar(consulta) {
 }
 
 console.log("\n1) Criar sala e entrar com o codigo");
-const anfitriao = conectar("criar=1&nome=Arley&carro=4&max=4&fase=3");
+const anfitriao = conectar("criar=1&nome=Arley&carro=4&max=24&fase=3&salaNome=Desafio&clima=rain_heavy&pocaAgua=1&pocaOleo=0&voltas=6");
 const bemvindo = anfitriao.ultima("bemvindo");
 conferir(!!bemvindo, "o anfitriao recebeu bemvindo");
 conferir(bemvindo && bemvindo.anfitriao === true, "quem cria a sala vira anfitriao");
 conferir(bemvindo && bemvindo.resumo.fase === 3, "a fase pedida na criacao foi guardada");
+conferir(bemvindo && bemvindo.resumo.nome === "Desafio", "o nome escolhido foi guardado");
+conferir(bemvindo && bemvindo.resumo.maxJogadores === 24, "a sala aceita o teto de 24 jogadores");
+conferir(bemvindo && bemvindo.resumo.clima === "rain_heavy", "o clima escolhido foi guardado");
+conferir(bemvindo && bemvindo.resumo.pocaAgua === true && bemvindo.resumo.pocaOleo === false,
+  "as opcoes de agua e oleo foram guardadas");
+conferir(bemvindo && bemvindo.resumo.voltas === 6, "o numero de voltas foi guardado");
 const salaId = bemvindo.sala;
 conferir(/^[A-Z2-9]{6}$/.test(salaId), "o codigo da sala tem 6 caracteres faceis de ditar: " + salaId);
 
@@ -164,6 +170,10 @@ const largadaB = convidado.ultima("largada");
 conferir(!!largadaA && !!largadaB, "os dois receberam a largada");
 conferir(largadaA.semente === largadaB.semente, "a semente da pista e a mesma para os dois");
 conferir(largadaA.fase === 17 && largadaB.fase === 17, "os dois correm a mesma fase");
+conferir(largadaA.voltas === 6 && largadaB.voltas === 6, "os dois correm as mesmas 6 voltas");
+conferir(largadaA.clima === "rain_heavy" && largadaB.clima === "rain_heavy", "os dois recebem o mesmo clima");
+conferir(largadaA.pocaAgua === true && largadaB.pocaAgua === true && largadaA.pocaOleo === false && largadaB.pocaOleo === false,
+  "os dois recebem as mesmas opcoes de pocas");
 conferir(largadaA.semente > 0, "a semente e um numero utilizavel: " + largadaA.semente);
 
 console.log("\n5) Nao da para entrar no meio da corrida");
@@ -228,7 +238,7 @@ Promise.all([pedir("/status"), pedir("/salas")]).then(function (respostas) {
   const status = JSON.parse(respostas[0]);
   const listagem = JSON.parse(respostas[1]);
   conferir(status.ok === true && status.jogo === "Turbo Race", "/status responde com o nome do jogo");
-  conferir(status.maxPorSala === 8, "/status informa o teto de 8 por sala");
+  conferir(status.maxPorSala === 24, "/status informa o teto de 24 por sala");
   conferir(Array.isArray(listagem.salas) && listagem.salas.length >= 1, "/salas lista a sala aberta");
 
   console.log("\n" + (falhas === 0 ? "TUDO PASSOU" : falhas + " CONFERENCIA(S) FALHARAM"));
