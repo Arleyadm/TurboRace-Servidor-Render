@@ -185,6 +185,8 @@ conferir(largadaA.pocaAgua === true && largadaB.pocaAgua === true && largadaA.po
 conferir(largadaA.semente > 0, "a semente e um numero utilizavel: " + largadaA.semente);
 conferir(largadaA.sincronizarEmMs === 4500 && largadaB.sincronizarEmMs === 4500,
   "PC e celular recebem o mesmo prazo sincronizado para o GO");
+conferir(Number.isFinite(largadaA.largadaServidorEm) && largadaA.largadaServidorEm === largadaB.largadaServidorEm,
+  "PC e celular recebem o mesmo instante absoluto da largada");
 conferir(largadaA.emMs === 3000 && largadaB.emMs === 3000,
   "o prazo legado foi preservado para aplicativos antigos");
 
@@ -194,6 +196,9 @@ conferir(!!atrasado.ultima("erro"), "quem chega com a corrida rolando recebe err
 
 console.log("\n6) Repasse de estado");
 anfitriao.limpar(); convidado.limpar();
+anfitriao.receber({ t: "estado", x: 0.5, position: 1234.5, speed: 900, lap: 1, fuel: 0.8, carId: 4, rank: 1, finished: false });
+conferir(convidado.ultima("estado") === null, "o estado e ignorado enquanto a contagem ainda nao terminou");
+moduloServidor.teste.salas.get(salaId).largadaEm = Date.now() - 1;
 anfitriao.receber({ t: "estado", x: 0.5, position: 1234.5, speed: 900, lap: 1, fuel: 0.8, carId: 4, rank: 1, finished: false });
 const estado = convidado.ultima("estado");
 conferir(!!estado, "o estado do anfitriao chegou no convidado");

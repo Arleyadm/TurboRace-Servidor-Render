@@ -10,8 +10,10 @@ conexões abertas; pings técnicos não renovam esse prazo.
 
 A largada usa uma barreira de carregamento: primeiro o servidor manda todos
 prepararem a pista, espera cada PC/celular confirmar `carregado` e só então
-libera uma contagem sincronizada de 4,5 segundos. Estados enviados antes dessa
-liberação são ignorados, evitando vantagem de volta/posição para o anfitrião.
+libera uma contagem sincronizada de 4,5 segundos. A mensagem inclui o instante
+absoluto do GO no relógio do servidor, e o `pong` inclui uma amostra desse
+relógio para compensar a latência de cada conexão. Estados enviados antes do
+instante real da largada são ignorados, evitando vantagem para o anfitrião.
 O campo legado de 3 segundos continua disponível.
 
 Servidor Node.js/WebSocket das salas online do Turbo Race. Mantém salas em

@@ -27,7 +27,7 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.6.0";
+const VERSAO = "1.7.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
@@ -264,7 +264,10 @@ function todosCarregados(sala) {
 function iniciarContagem(sala) {
   if (!sala.correndo || !sala.preparando || sala.largadaEm) return;
   sala.preparando = false;
-  sala.largadaEm = Date.now();
+  // Guarda o instante REAL do GO no relógio do servidor. Mandar apenas uma
+  // duração relativa fazia cada aparelho começar depois de sua própria
+  // latência de rede e a contagem ainda podia escorregar em celulares lentos.
+  sala.largadaEm = Date.now() + CONTAGEM_SINCRONIZADA_MS;
   if (sala.preparacaoTimer) clearTimeout(sala.preparacaoTimer);
   sala.preparacaoTimer = null;
   const mensagem = dadosDaCorrida(sala, "largada");
@@ -272,6 +275,7 @@ function iniciarContagem(sala) {
   // pronta e usam o prazo comum de 4,5 s, compensado pela metade do RTT.
   mensagem.emMs = 3000;
   mensagem.sincronizarEmMs = CONTAGEM_SINCRONIZADA_MS;
+  mensagem.largadaServidorEm = sala.largadaEm;
   transmitir(sala, mensagem);
   avisarSala(sala);
 }
@@ -586,7 +590,7 @@ function tratarMensagem(sala, cliente, msg) {
     case "estado": {
       // Ignora estados produzidos enquanto algum aparelho ainda carrega a
       // pista. Isso impede volta/posição antiga de dar vantagem ao anfitrião.
-      if (!sala.correndo || !sala.largadaEm) return;
+      if (!sala.correndo || !sala.largadaEm || Date.now() < sala.largadaEm) return;
       const agora = Math.trunc(Date.now() / 1000);
       if (cliente.segundoAtual !== agora) {
         cliente.segundoAtual = agora;
@@ -736,7 +740,9 @@ function tratarMensagem(sala, cliente, msg) {
     }
 
     case "ping": {
-      enviar(cliente, { t: "pong", stamp: msg.stamp });
+      // O horário do servidor permite aos clientes calcular a diferença entre
+      // relógios usando metade do RTT, como uma amostra NTP simplificada.
+      enviar(cliente, { t: "pong", stamp: msg.stamp, servidorEm: Date.now() });
       return;
     }
 
