@@ -1,8 +1,8 @@
 # Turbo Race — servidor de salas
 
-Salas em espera com zero ou apenas um jogador são encerradas automaticamente
-depois de 2 minutos. A contagem é cancelada assim que um segundo jogador entra
-e reinicia caso a sala volte a ficar com somente um jogador.
+Uma sala com apenas um jogador aguarda até 5 minutos pela entrada de outra
+pessoa. Com dois ou mais jogadores não há expiração por espera. Depois que
+todos saem, a sala vazia é removida em 120 segundos.
 
 Servidor Node.js/WebSocket das salas online do Turbo Race. Mantém salas em
 memória, aceita até 24 jogadores, sincroniza fase/semente/estado e gerencia a

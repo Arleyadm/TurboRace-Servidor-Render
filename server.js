@@ -27,7 +27,7 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.2.0";
+const VERSAO = "1.3.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
@@ -38,10 +38,11 @@ const TOTAL_FASES = 28;
 
 // Quem cai volta para a mesma sala se reconectar dentro desse tempo.
 const RECONEXAO_MS = 15000;
-// Uma sala em espera com zero ou apenas um piloto e apagada depois deste
-// tempo. Assim uma aba esquecida aberta nao deixa uma sala fantasma para
-// sempre na lista publica. Quando o segundo piloto entra, o relogio para.
-const SALA_SOZINHA_MS = 120000;
+// Sala totalmente vazia some em 2 minutos. Se apenas o anfitriao (ou outro
+// piloto sozinho) continuar conectado, ela aguarda 5 minutos por mais alguem.
+// Com dois ou mais pilotos nao ha expiracao por espera.
+const SALA_VAZIA_MS = 120000;
+const SALA_SOZINHA_MS = 300000;
 const VARREDURA_MS = 10000;
 // Quem nao responde ao ping neste tempo e considerado desconectado.
 const BATIMENTO_MS = 30000;
@@ -145,7 +146,8 @@ function criarSala(nomeDaSala, maxJogadores, fase, configuracao) {
     largadaEm: 0,
     clientes: new Map(),      // pid -> cliente
     criadaEm: Date.now(),
-    sozinhaDesde: Date.now()
+    vaziaDesde: Date.now(),
+    sozinhaDesde: 0
   };
   salas.set(id, sala);
   return sala;
@@ -161,10 +163,16 @@ function conectados(sala) {
 
 function atualizarEsperaSozinha(sala, agora) {
   const instante = agora || Date.now();
-  if (!sala.correndo && conectados(sala) <= 1) {
+  const total = conectados(sala);
+  if (sala.correndo || total >= 2) {
+    sala.vaziaDesde = 0;
+    sala.sozinhaDesde = 0;
+  } else if (total === 1) {
+    sala.vaziaDesde = 0;
     if (!sala.sozinhaDesde) sala.sozinhaDesde = instante;
   } else {
     sala.sozinhaDesde = 0;
+    if (!sala.vaziaDesde) sala.vaziaDesde = instante;
   }
 }
 
@@ -689,13 +697,13 @@ function encerrarCorrida(sala) {
 // Varredura: derruba socket morto, tira quem nao voltou e apaga sala sozinha
 // ---------------------------------------------------------------------------
 
-function apagarSalaSozinha(sala) {
+function apagarSalaInativa(sala, mensagem) {
   salas.delete(sala.id);
   for (const cliente of sala.clientes.values()) {
     sessoes.delete(cliente.token);
     enviar(cliente, {
       t: "erro",
-      mensagem: "Sala encerrada: nenhum outro jogador entrou em 2 minutos."
+      mensagem: mensagem
     });
     try { cliente.ws.close(1001, "sala inativa"); } catch (e) { /* ja fechou */ }
   }
@@ -726,8 +734,10 @@ function varrerSalas(instante) {
     }
 
     atualizarEsperaSozinha(sala, agora);
-    if (sala.sozinhaDesde && agora - sala.sozinhaDesde >= SALA_SOZINHA_MS) {
-      apagarSalaSozinha(sala);
+    if (sala.vaziaDesde && agora - sala.vaziaDesde >= SALA_VAZIA_MS) {
+      apagarSalaInativa(sala, "Sala encerrada depois de ficar vazia por 2 minutos.");
+    } else if (sala.sozinhaDesde && agora - sala.sozinhaDesde >= SALA_SOZINHA_MS) {
+      apagarSalaInativa(sala, "Sala encerrada: nenhum outro jogador entrou em 5 minutos.");
     }
   }
 }
@@ -743,6 +753,7 @@ module.exports = {
     salas: salas,
     sessoes: sessoes,
     varrerSalas: varrerSalas,
+    salaVaziaMs: SALA_VAZIA_MS,
     salaSozinhaMs: SALA_SOZINHA_MS
   }
 };

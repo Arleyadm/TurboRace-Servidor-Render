@@ -241,16 +241,30 @@ Promise.all([pedir("/status"), pedir("/salas")]).then(function (respostas) {
   conferir(status.maxPorSala === 24, "/status informa o teto de 24 por sala");
   conferir(Array.isArray(listagem.salas) && listagem.salas.length >= 1, "/salas lista a sala aberta");
 
-  console.log("\n12) Sala com apenas um jogador expira em 2 minutos");
+  console.log("\n12) Sala com apenas um jogador expira em 5 minutos");
   const salaSozinha = moduloServidor.teste.salas.get(salaId);
   conferir(!!salaSozinha && salaSozinha.sozinhaDesde > 0,
     "o relogio de inatividade comecou quando sobrou apenas um jogador");
-  const inicioDaEspera = salaSozinha.sozinhaDesde;
-  moduloServidor.teste.varrerSalas(inicioDaEspera + moduloServidor.teste.salaSozinhaMs - 1);
-  conferir(moduloServidor.teste.salas.has(salaId), "a sala continua antes de completar 2 minutos");
-  moduloServidor.teste.varrerSalas(inicioDaEspera + moduloServidor.teste.salaSozinhaMs);
-  conferir(!moduloServidor.teste.salas.has(salaId), "a sala some ao completar 2 minutos sozinha");
+  const agoraSozinha = Date.now();
+  salaSozinha.sozinhaDesde = agoraSozinha - moduloServidor.teste.salaSozinhaMs + 1;
+  moduloServidor.teste.varrerSalas(agoraSozinha);
+  conferir(moduloServidor.teste.salas.has(salaId), "a sala continua antes de completar 5 minutos");
+  salaSozinha.sozinhaDesde = agoraSozinha - moduloServidor.teste.salaSozinhaMs;
+  moduloServidor.teste.varrerSalas(agoraSozinha);
+  conferir(!moduloServidor.teste.salas.has(salaId), "a sala some ao completar 5 minutos sozinha");
   conferir(convidado.readyState === 3, "o jogador restante recebe o encerramento da sala");
+
+  console.log("\n13) Sala totalmente vazia expira em 2 minutos");
+  const donoDaVazia = conectar("criar=1&nome=Temporario&salaNome=Vazia");
+  const idDaVazia = donoDaVazia.ultima("bemvindo").sala;
+  donoDaVazia.receber({ t: "sair" });
+  const salaVazia = moduloServidor.teste.salas.get(idDaVazia);
+  conferir(!!salaVazia && salaVazia.vaziaDesde > 0, "o relogio comecou quando todos sairam");
+  const inicioVazia = salaVazia.vaziaDesde;
+  moduloServidor.teste.varrerSalas(inicioVazia + moduloServidor.teste.salaVaziaMs - 1);
+  conferir(moduloServidor.teste.salas.has(idDaVazia), "a sala vazia continua antes de 120 segundos");
+  moduloServidor.teste.varrerSalas(inicioVazia + moduloServidor.teste.salaVaziaMs);
+  conferir(!moduloServidor.teste.salas.has(idDaVazia), "a sala vazia some ao completar 120 segundos");
 
   console.log("\n" + (falhas === 0 ? "TUDO PASSOU" : falhas + " CONFERENCIA(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
