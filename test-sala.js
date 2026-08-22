@@ -175,6 +175,10 @@ conferir(largadaA.clima === "rain_heavy" && largadaB.clima === "rain_heavy", "os
 conferir(largadaA.pocaAgua === true && largadaB.pocaAgua === true && largadaA.pocaOleo === false && largadaB.pocaOleo === false,
   "os dois recebem as mesmas opcoes de pocas");
 conferir(largadaA.semente > 0, "a semente e um numero utilizavel: " + largadaA.semente);
+conferir(largadaA.sincronizarEmMs === 6000 && largadaB.sincronizarEmMs === 6000,
+  "PC e celular recebem o mesmo prazo sincronizado para o GO");
+conferir(largadaA.emMs === 3000 && largadaB.emMs === 3000,
+  "o prazo legado foi preservado para aplicativos antigos");
 
 console.log("\n5) Nao da para entrar no meio da corrida");
 const atrasado = conectar("sala=" + salaId + "&nome=Tarde");

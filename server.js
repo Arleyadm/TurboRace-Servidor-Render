@@ -27,7 +27,7 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.4.0";
+const VERSAO = "1.5.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
@@ -619,10 +619,12 @@ function tratarMensagem(sala, cliente, msg) {
         pocaOleo: sala.pocaOleo,
         voltas: sala.voltas,
         corridaId: sala.corridaId,
-        // Tres segundos para todos receberem a mensagem e montarem a pista.
-        // O cliente desconta metade da propria latencia, fazendo a contagem
-        // regressiva terminar praticamente no mesmo instante para a sala toda.
+        // Campo legado: clientes antigos continuam funcionando como antes.
         emMs: 3000,
+        // Clientes novos guardam imediatamente o instante local do GO. Assim o
+        // tempo gasto para abrir/montar a corrida no Android tambem e descontado
+        // e PC/celular terminam a contagem juntos.
+        sincronizarEmMs: 6000,
         jogadores: resumoDaSala(sala).jogadores
       });
       avisarSala(sala);
