@@ -27,7 +27,7 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.3.0";
+const VERSAO = "1.4.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
@@ -43,7 +43,10 @@ const RECONEXAO_MS = 15000;
 // Com dois ou mais pilotos nao ha expiracao por espera.
 const SALA_VAZIA_MS = 120000;
 const SALA_SOZINHA_MS = 300000;
-const VARREDURA_MS = 10000;
+// Mesmo com sockets tecnicamente abertos, uma sala sem nenhuma acao real
+// durante 5 minutos e considerada abandonada. A limpeza roda continuamente.
+const SALA_INATIVA_MS = 300000;
+const VARREDURA_MS = 5000;
 // Quem nao responde ao ping neste tempo e considerado desconectado.
 const BATIMENTO_MS = 30000;
 
@@ -146,6 +149,7 @@ function criarSala(nomeDaSala, maxJogadores, fase, configuracao) {
     largadaEm: 0,
     clientes: new Map(),      // pid -> cliente
     criadaEm: Date.now(),
+    ultimaAtividadeEm: Date.now(),
     vaziaDesde: Date.now(),
     sozinhaDesde: 0
   };
@@ -388,6 +392,7 @@ function aoConectar(ws, url) {
       cliente.ws = ws;
       cliente.vivoEm = Date.now();
       cliente.caiuEm = 0;
+      sala.ultimaAtividadeEm = Date.now();
       prepararSocket(ws, cliente, sala);
       enviar(cliente, {
         t: "bemvindo",
@@ -464,6 +469,7 @@ function aoConectar(ws, url) {
 
   sala.clientes.set(cliente.pid, cliente);
   sessoes.set(cliente.token, cliente);
+  sala.ultimaAtividadeEm = Date.now();
   atualizarEsperaSozinha(sala);
   if (!sala.anfitriaoPid) sala.anfitriaoPid = cliente.pid;
 
@@ -499,6 +505,9 @@ function prepararSocket(ws, cliente, sala) {
       return;
     }
     if (!msg || typeof msg !== "object") return;
+    // Ping so comprova que o socket existe; nao impede a limpeza de uma sala
+    // abandonada numa aba esquecida. Qualquer outra mensagem e acao real.
+    if (msg.t !== "ping") sala.ultimaAtividadeEm = Date.now();
     tratarMensagem(sala, cliente, msg);
   });
 
@@ -738,6 +747,8 @@ function varrerSalas(instante) {
       apagarSalaInativa(sala, "Sala encerrada depois de ficar vazia por 2 minutos.");
     } else if (sala.sozinhaDesde && agora - sala.sozinhaDesde >= SALA_SOZINHA_MS) {
       apagarSalaInativa(sala, "Sala encerrada: nenhum outro jogador entrou em 5 minutos.");
+    } else if (sala.ultimaAtividadeEm && agora - sala.ultimaAtividadeEm >= SALA_INATIVA_MS) {
+      apagarSalaInativa(sala, "Sala encerrada depois de 5 minutos sem atividade.");
     }
   }
 }
@@ -754,6 +765,7 @@ module.exports = {
     sessoes: sessoes,
     varrerSalas: varrerSalas,
     salaVaziaMs: SALA_VAZIA_MS,
-    salaSozinhaMs: SALA_SOZINHA_MS
+    salaSozinhaMs: SALA_SOZINHA_MS,
+    salaInativaMs: SALA_INATIVA_MS
   }
 };

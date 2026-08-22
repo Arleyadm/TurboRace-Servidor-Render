@@ -266,6 +266,23 @@ Promise.all([pedir("/status"), pedir("/salas")]).then(function (respostas) {
   moduloServidor.teste.varrerSalas(inicioVazia + moduloServidor.teste.salaVaziaMs);
   conferir(!moduloServidor.teste.salas.has(idDaVazia), "a sala vazia some ao completar 120 segundos");
 
+  console.log("\n14) Limpeza permanente remove sala abandonada com sockets abertos");
+  const donoInativo = conectar("criar=1&nome=Parado&salaNome=Abandonada");
+  const idInativa = donoInativo.ultima("bemvindo").sala;
+  const outroInativo = conectar("sala=" + idInativa + "&nome=Esquecido");
+  const salaInativa = moduloServidor.teste.salas.get(idInativa);
+  conferir(!!salaInativa && salaInativa.sozinhaDesde === 0,
+    "dois sockets abertos nao usam o prazo de sala sozinha");
+  const agoraInativa = Date.now();
+  salaInativa.ultimaAtividadeEm = agoraInativa - moduloServidor.teste.salaInativaMs + 1;
+  moduloServidor.teste.varrerSalas(agoraInativa);
+  conferir(moduloServidor.teste.salas.has(idInativa), "a sala continua um instante antes de 5 minutos inativa");
+  salaInativa.ultimaAtividadeEm = agoraInativa - moduloServidor.teste.salaInativaMs;
+  moduloServidor.teste.varrerSalas(agoraInativa);
+  conferir(!moduloServidor.teste.salas.has(idInativa), "a limpeza remove a sala inativa mesmo com sockets abertos");
+  conferir(donoInativo.readyState === 3 && outroInativo.readyState === 3,
+    "a limpeza fecha todos os sockets abandonados");
+
   console.log("\n" + (falhas === 0 ? "TUDO PASSOU" : falhas + " CONFERENCIA(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
 });
