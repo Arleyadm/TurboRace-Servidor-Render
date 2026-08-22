@@ -27,7 +27,7 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.1.0";
+const VERSAO = "1.2.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
@@ -38,8 +38,10 @@ const TOTAL_FASES = 28;
 
 // Quem cai volta para a mesma sala se reconectar dentro desse tempo.
 const RECONEXAO_MS = 15000;
-// Uma sala sem ninguem conectado e apagada depois deste tempo.
-const SALA_VAZIA_MS = 120000;
+// Uma sala em espera com zero ou apenas um piloto e apagada depois deste
+// tempo. Assim uma aba esquecida aberta nao deixa uma sala fantasma para
+// sempre na lista publica. Quando o segundo piloto entra, o relogio para.
+const SALA_SOZINHA_MS = 120000;
 const VARREDURA_MS = 10000;
 // Quem nao responde ao ping neste tempo e considerado desconectado.
 const BATIMENTO_MS = 30000;
@@ -143,7 +145,7 @@ function criarSala(nomeDaSala, maxJogadores, fase, configuracao) {
     largadaEm: 0,
     clientes: new Map(),      // pid -> cliente
     criadaEm: Date.now(),
-    vaziaDesde: Date.now()
+    sozinhaDesde: Date.now()
   };
   salas.set(id, sala);
   return sala;
@@ -155,6 +157,15 @@ function conectados(sala) {
     if (cliente.ws && cliente.ws.readyState === WebSocket.OPEN) total++;
   }
   return total;
+}
+
+function atualizarEsperaSozinha(sala, agora) {
+  const instante = agora || Date.now();
+  if (!sala.correndo && conectados(sala) <= 1) {
+    if (!sala.sozinhaDesde) sala.sozinhaDesde = instante;
+  } else {
+    sala.sozinhaDesde = 0;
+  }
 }
 
 function resumoDaSala(sala) {
@@ -226,8 +237,9 @@ function tirarDaSala(sala, cliente, motivo) {
   sala.clientes.delete(cliente.pid);
   sessoes.delete(cliente.token);
   passarOAnfitriao(sala);
+  atualizarEsperaSozinha(sala);
   if (sala.clientes.size === 0) {
-    sala.vaziaDesde = Date.now();
+    return;
   } else {
     transmitir(sala, { t: "saiu", pid: cliente.pid, motivo: motivo || "" });
     avisarSala(sala);
@@ -249,6 +261,7 @@ function salaComVaga() {
 // ---------------------------------------------------------------------------
 
 const servidor = http.createServer(function (req, res) {
+  varrerSalas();
   const url = new URL(req.url, "http://" + (req.headers.host || "localhost"));
 
   if (req.method === "OPTIONS") {
@@ -330,6 +343,7 @@ const servidor = http.createServer(function (req, res) {
 const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BYTES_MENSAGEM });
 
 servidor.on("upgrade", function (req, socket, head) {
+  varrerSalas();
   let url;
   try {
     url = new URL(req.url, "http://" + (req.headers.host || "localhost"));
@@ -442,7 +456,7 @@ function aoConectar(ws, url) {
 
   sala.clientes.set(cliente.pid, cliente);
   sessoes.set(cliente.token, cliente);
-  sala.vaziaDesde = 0;
+  atualizarEsperaSozinha(sala);
   if (!sala.anfitriaoPid) sala.anfitriaoPid = cliente.pid;
 
   prepararSocket(ws, cliente, sala);
@@ -487,6 +501,7 @@ function prepararSocket(ws, cliente, sala) {
     // Nao tira na hora: o jogador tem RECONEXAO_MS para voltar a mesma sala.
     if (sala.clientes.has(cliente.pid)) {
       passarOAnfitriao(sala);
+      atualizarEsperaSozinha(sala);
       avisarSala(sala);
     }
   });
@@ -666,17 +681,31 @@ function encerrarCorrida(sala) {
   }
   ordem.sort((a, b) => a.posicao - b.posicao);
   transmitir(sala, { t: "fim", corridaId: sala.corridaId, ordem: ordem });
+  atualizarEsperaSozinha(sala);
   avisarSala(sala);
 }
 
 // ---------------------------------------------------------------------------
-// Varredura: derruba socket morto, tira quem nao voltou e apaga sala vazia
+// Varredura: derruba socket morto, tira quem nao voltou e apaga sala sozinha
 // ---------------------------------------------------------------------------
 
-setInterval(function () {
-  const agora = Date.now();
+function apagarSalaSozinha(sala) {
+  salas.delete(sala.id);
+  for (const cliente of sala.clientes.values()) {
+    sessoes.delete(cliente.token);
+    enviar(cliente, {
+      t: "erro",
+      mensagem: "Sala encerrada: nenhum outro jogador entrou em 2 minutos."
+    });
+    try { cliente.ws.close(1001, "sala inativa"); } catch (e) { /* ja fechou */ }
+  }
+  sala.clientes.clear();
+}
 
-  for (const sala of salas.values()) {
+function varrerSalas(instante) {
+  const agora = Number.isFinite(instante) ? instante : Date.now();
+
+  for (const sala of Array.from(salas.values())) {
     for (const cliente of Array.from(sala.clientes.values())) {
       const aberto = cliente.ws && cliente.ws.readyState === WebSocket.OPEN;
 
@@ -696,15 +725,24 @@ setInterval(function () {
       }
     }
 
-    if (sala.clientes.size === 0) {
-      if (!sala.vaziaDesde) sala.vaziaDesde = agora;
-      if (agora - sala.vaziaDesde > SALA_VAZIA_MS) salas.delete(sala.id);
-    } else {
-      sala.vaziaDesde = 0;
+    atualizarEsperaSozinha(sala, agora);
+    if (sala.sozinhaDesde && agora - sala.sozinhaDesde >= SALA_SOZINHA_MS) {
+      apagarSalaSozinha(sala);
     }
   }
-}, VARREDURA_MS);
+}
+
+setInterval(varrerSalas, VARREDURA_MS);
 
 servidor.listen(PORT, HOST, function () {
   console.log("Sala online do Turbo Race ouvindo em " + HOST + ":" + PORT + " (WebSocket em " + CAMINHO_WS + ")");
 });
+
+module.exports = {
+  teste: {
+    salas: salas,
+    sessoes: sessoes,
+    varrerSalas: varrerSalas,
+    salaSozinhaMs: SALA_SOZINHA_MS
+  }
+};

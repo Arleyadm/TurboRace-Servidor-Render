@@ -93,7 +93,7 @@ http.createServer = function (manipulador) {
   s.listen = function () { return s; };   // não abre porta durante o teste
   return s;
 };
-require("./server.js");
+const moduloServidor = require("./server.js");
 http.createServer = criarOriginal;
 
 if (!servidorHttp) {
@@ -240,6 +240,17 @@ Promise.all([pedir("/status"), pedir("/salas")]).then(function (respostas) {
   conferir(status.ok === true && status.jogo === "Turbo Race", "/status responde com o nome do jogo");
   conferir(status.maxPorSala === 24, "/status informa o teto de 24 por sala");
   conferir(Array.isArray(listagem.salas) && listagem.salas.length >= 1, "/salas lista a sala aberta");
+
+  console.log("\n12) Sala com apenas um jogador expira em 2 minutos");
+  const salaSozinha = moduloServidor.teste.salas.get(salaId);
+  conferir(!!salaSozinha && salaSozinha.sozinhaDesde > 0,
+    "o relogio de inatividade comecou quando sobrou apenas um jogador");
+  const inicioDaEspera = salaSozinha.sozinhaDesde;
+  moduloServidor.teste.varrerSalas(inicioDaEspera + moduloServidor.teste.salaSozinhaMs - 1);
+  conferir(moduloServidor.teste.salas.has(salaId), "a sala continua antes de completar 2 minutos");
+  moduloServidor.teste.varrerSalas(inicioDaEspera + moduloServidor.teste.salaSozinhaMs);
+  conferir(!moduloServidor.teste.salas.has(salaId), "a sala some ao completar 2 minutos sozinha");
+  conferir(convidado.readyState === 3, "o jogador restante recebe o encerramento da sala");
 
   console.log("\n" + (falhas === 0 ? "TUDO PASSOU" : falhas + " CONFERENCIA(S) FALHARAM"));
   process.exit(falhas === 0 ? 0 : 1);
