@@ -27,7 +27,7 @@ const PORT = Math.max(1024, Math.min(65535, Number(process.env.PORT || process.e
 // Na nuvem e preciso aceitar conexoes de fora; no computador, so do proprio tunel.
 const HOST = process.env.TURBO_HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
-const VERSAO = "1.5.0";
+const VERSAO = "1.6.0";
 const CAMINHO_WS = "/corrida";
 
 const MIN_JOGADORES = 2;
@@ -53,6 +53,11 @@ const BATIMENTO_MS = 30000;
 // Quantas mensagens de estado um jogador pode mandar por segundo. O cliente
 // manda ~15/s; o teto e folgado so para barrar cliente estragado.
 const ESTADOS_POR_SEGUNDO = 40;
+// A corrida só recebe o GO depois que todos confirmam que terminaram de montar
+// a pista. A folga serve apenas para clientes antigos que ainda não respondem
+// `carregado`; clientes atuais normalmente liberam a contagem em poucos segundos.
+const PREPARACAO_MAX_MS = 15000;
+const CONTAGEM_SINCRONIZADA_MS = 4500;
 
 const salas = new Map();     // id -> sala
 const sessoes = new Map();   // token -> cliente (para reconexao)
@@ -147,6 +152,8 @@ function criarSala(nomeDaSala, maxJogadores, fase, configuracao) {
     semente: 0,
     corridaId: "",
     largadaEm: 0,
+    preparando: false,
+    preparacaoTimer: null,
     clientes: new Map(),      // pid -> cliente
     criadaEm: Date.now(),
     ultimaAtividadeEm: Date.now(),
@@ -230,6 +237,49 @@ function avisarSala(sala) {
   transmitir(sala, { t: "sala", resumo: resumoDaSala(sala) });
 }
 
+function dadosDaCorrida(sala, tipo) {
+  return {
+    t: tipo,
+    semente: sala.semente,
+    fase: sala.fase,
+    clima: sala.clima,
+    pocaAgua: sala.pocaAgua,
+    pocaOleo: sala.pocaOleo,
+    voltas: sala.voltas,
+    corridaId: sala.corridaId,
+    jogadores: resumoDaSala(sala).jogadores
+  };
+}
+
+function todosCarregados(sala) {
+  let total = 0;
+  for (const outro of sala.clientes.values()) {
+    if (!outro.ws || outro.ws.readyState !== WebSocket.OPEN) continue;
+    total++;
+    if (outro.carregadoCorridaId !== sala.corridaId) return false;
+  }
+  return total >= MIN_JOGADORES;
+}
+
+function iniciarContagem(sala) {
+  if (!sala.correndo || !sala.preparando || sala.largadaEm) return;
+  sala.preparando = false;
+  sala.largadaEm = Date.now();
+  if (sala.preparacaoTimer) clearTimeout(sala.preparacaoTimer);
+  sala.preparacaoTimer = null;
+  const mensagem = dadosDaCorrida(sala, "largada");
+  // O app antigo ainda entende emMs. Os clientes atuais já estão com a pista
+  // pronta e usam o prazo comum de 4,5 s, compensado pela metade do RTT.
+  mensagem.emMs = 3000;
+  mensagem.sincronizarEmMs = CONTAGEM_SINCRONIZADA_MS;
+  transmitir(sala, mensagem);
+  avisarSala(sala);
+}
+
+function tentarIniciarContagem(sala) {
+  if (todosCarregados(sala)) iniciarContagem(sala);
+}
+
 /** Escolhe um novo anfitriao quando o antigo sai. */
 function passarOAnfitriao(sala) {
   if (sala.clientes.has(sala.anfitriaoPid)) {
@@ -255,6 +305,7 @@ function tirarDaSala(sala, cliente, motivo) {
   } else {
     transmitir(sala, { t: "saiu", pid: cliente.pid, motivo: motivo || "" });
     avisarSala(sala);
+    if (sala.preparando) tentarIniciarContagem(sala);
   }
 }
 
@@ -464,7 +515,8 @@ function aoConectar(ws, url) {
     vivoEm: Date.now(),
     caiuEm: 0,
     estadosNoSegundo: 0,
-    segundoAtual: 0
+    segundoAtual: 0,
+    carregadoCorridaId: ""
   };
 
   sala.clientes.set(cliente.pid, cliente);
@@ -520,6 +572,7 @@ function prepararSocket(ws, cliente, sala) {
       passarOAnfitriao(sala);
       atualizarEsperaSozinha(sala);
       avisarSala(sala);
+      if (sala.preparando) tentarIniciarContagem(sala);
     }
   });
 
@@ -531,6 +584,9 @@ function tratarMensagem(sala, cliente, msg) {
 
     // Estado do carro, o tipo mais comum. Vai direto para os outros da sala.
     case "estado": {
+      // Ignora estados produzidos enquanto algum aparelho ainda carrega a
+      // pista. Isso impede volta/posição antiga de dar vantagem ao anfitrião.
+      if (!sala.correndo || !sala.largadaEm) return;
       const agora = Math.trunc(Date.now() / 1000);
       if (cliente.segundoAtual !== agora) {
         cliente.segundoAtual = agora;
@@ -604,30 +660,31 @@ function tratarMensagem(sala, cliente, msg) {
       sala.corridaId = crypto.randomBytes(8).toString("hex");
       // A semente decide a pista. Todos usam a mesma, entao correm o mesmo tracado.
       sala.semente = crypto.randomInt(1, 2147483646);
-      sala.largadaEm = Date.now();
+      sala.largadaEm = 0;
+      sala.preparando = true;
       for (const outro of sala.clientes.values()) {
         outro.terminou = false;
         outro.posicaoFinal = 0;
         outro.tempoFinal = 0;
+        outro.carregadoCorridaId = "";
       }
-      transmitir(sala, {
-        t: "largada",
-        semente: sala.semente,
-        fase: sala.fase,
-        clima: sala.clima,
-        pocaAgua: sala.pocaAgua,
-        pocaOleo: sala.pocaOleo,
-        voltas: sala.voltas,
-        corridaId: sala.corridaId,
-        // Campo legado: clientes antigos continuam funcionando como antes.
-        emMs: 3000,
-        // Clientes novos guardam imediatamente o instante local do GO. Assim o
-        // tempo gasto para abrir/montar a corrida no Android tambem e descontado
-        // e PC/celular terminam a contagem juntos.
-        sincronizarEmMs: 6000,
-        jogadores: resumoDaSala(sala).jogadores
-      });
+      // Primeira etapa: todos abrem e montam a mesma pista, mas ficam parados.
+      transmitir(sala, dadosDaCorrida(sala, "preparar"));
+      sala.preparacaoTimer = setTimeout(function () {
+        iniciarContagem(sala);
+      }, PREPARACAO_MAX_MS);
+      if (sala.preparacaoTimer && typeof sala.preparacaoTimer.unref === "function") {
+        sala.preparacaoTimer.unref();
+      }
       avisarSala(sala);
+      return;
+    }
+
+    case "carregado": {
+      if (!sala.correndo || !sala.preparando) return;
+      if (String(msg.corridaId || "") !== sala.corridaId) return;
+      cliente.carregadoCorridaId = sala.corridaId;
+      tentarIniciarContagem(sala);
       return;
     }
 
@@ -690,6 +747,10 @@ function tratarMensagem(sala, cliente, msg) {
 
 function encerrarCorrida(sala) {
   if (!sala.correndo) return;
+  if (sala.preparacaoTimer) clearTimeout(sala.preparacaoTimer);
+  sala.preparacaoTimer = null;
+  sala.preparando = false;
+  sala.largadaEm = 0;
   sala.correndo = false;
   const ordem = [];
   for (const cliente of sala.clientes.values()) {

@@ -8,9 +8,11 @@ Uma limpeza automática roda a cada 5 segundos. Se nenhuma ação real ocorrer
 por 5 minutos, a sala é encerrada mesmo que abas antigas ainda mantenham
 conexões abertas; pings técnicos não renovam esse prazo.
 
-A largada envia um prazo sincronizado de 6 segundos. Clientes novos guardam o
-instante do `GO` antes de montar a pista, eliminando a diferença causada pelo
-tempo de abertura da corrida no celular. O campo legado continua disponível.
+A largada usa uma barreira de carregamento: primeiro o servidor manda todos
+prepararem a pista, espera cada PC/celular confirmar `carregado` e só então
+libera uma contagem sincronizada de 4,5 segundos. Estados enviados antes dessa
+liberação são ignorados, evitando vantagem de volta/posição para o anfitrião.
+O campo legado de 3 segundos continua disponível.
 
 Servidor Node.js/WebSocket das salas online do Turbo Race. Mantém salas em
 memória, aceita até 24 jogadores, sincroniza fase/semente/estado e gerencia a

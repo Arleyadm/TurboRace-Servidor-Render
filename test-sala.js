@@ -165,9 +165,17 @@ conferir(anfitriao.ultima("sala").resumo.jogadores.some(j => j.nome === "Bia" &&
   "o pronto do convidado apareceu para o anfitriao");
 
 anfitriao.receber({ t: "largar" });
+const prepararA = anfitriao.ultima("preparar");
+const prepararB = convidado.ultima("preparar");
+conferir(!!prepararA && !!prepararB, "os dois receberam a ordem de preparar a pista");
+conferir(anfitriao.ultima("largada") === null && convidado.ultima("largada") === null,
+  "ninguem larga antes de terminar o carregamento");
+anfitriao.receber({ t: "carregado", corridaId: prepararA.corridaId });
+conferir(anfitriao.ultima("largada") === null, "o anfitriao nao larga sozinho");
+convidado.receber({ t: "carregado", corridaId: prepararB.corridaId });
 const largadaA = anfitriao.ultima("largada");
 const largadaB = convidado.ultima("largada");
-conferir(!!largadaA && !!largadaB, "os dois receberam a largada");
+conferir(!!largadaA && !!largadaB, "os dois receberam a largada somente depois de carregados");
 conferir(largadaA.semente === largadaB.semente, "a semente da pista e a mesma para os dois");
 conferir(largadaA.fase === 17 && largadaB.fase === 17, "os dois correm a mesma fase");
 conferir(largadaA.voltas === 6 && largadaB.voltas === 6, "os dois correm as mesmas 6 voltas");
@@ -175,7 +183,7 @@ conferir(largadaA.clima === "rain_heavy" && largadaB.clima === "rain_heavy", "os
 conferir(largadaA.pocaAgua === true && largadaB.pocaAgua === true && largadaA.pocaOleo === false && largadaB.pocaOleo === false,
   "os dois recebem as mesmas opcoes de pocas");
 conferir(largadaA.semente > 0, "a semente e um numero utilizavel: " + largadaA.semente);
-conferir(largadaA.sincronizarEmMs === 6000 && largadaB.sincronizarEmMs === 6000,
+conferir(largadaA.sincronizarEmMs === 4500 && largadaB.sincronizarEmMs === 4500,
   "PC e celular recebem o mesmo prazo sincronizado para o GO");
 conferir(largadaA.emMs === 3000 && largadaB.emMs === 3000,
   "o prazo legado foi preservado para aplicativos antigos");
